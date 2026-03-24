@@ -1,0 +1,105 @@
+import numpy as np # importation du module numpy
+import numpy.linalg as la # importation du module numpy.linalg
+import math
+
+
+print('Pour le second membre, choix de la fonction f')
+print('Pour m=0 : f=0')
+print('Pour m=1 : f=1')
+print('Pour m=2 : f=x')
+print('Pour m=3 : f=x^2')
+print('Pour m=4 : f=4*pi^2*sin(2*pi*x)')
+m = int(input("Choix de m = "))
+print('Choix de la condition a gauche')
+ug = float(input('ug = u(0) ='))
+
+print('Choix du nombre N de points interieurs du maillage')
+N = int(input('N = '))
+
+# 1. Maillage 
+
+h=1/(N+1) # Calculer le pas uniforme h de [0,1] subdivisé en N+1 intervalles.
+X = np.linspace(0,1,N+2) # Définir la subdivision uniforme X de [0,1], de pas h.
+Xh = np.linspace(h, 1, N+1)
+
+
+# 2. Matrice du systeme lineaire 
+
+surdiag = np.diag(-1*np.ones(N),1)
+sousdiag = np.diag(-1*np.ones(N),-1)
+sousdiag[N,N-1]=-2
+diagprincipal = np.diag(2*np.ones(N+1),0)
+A=diagprincipal+sousdiag+surdiag
+A[N, N]=A[N,N]/2
+A[N, N-1]= A[N,N-1]/2
+A=(1/(h**2))*A
+
+
+conditionnement_A = la.cond(A)
+
+
+def f(x, m):
+    if (m == 0):
+        y = np.zeros(np.size(x))
+    elif (m == 1):
+        y = np.ones(np.size(x))
+    elif (m == 2):
+        y = np.copy(x)
+    elif (m == 3):
+        y = x**2
+    elif (m == 4):
+        y = 4*(np.pi**2)*np.sin(2*np.pi*x)
+    else :
+        print('valeur de m indéfinie')
+    return y
+
+# Fonction définissant la solution exacte de l'équation
+
+def solex(x, ug, m):
+    if (m == 0):
+        y = ug*np.ones(np.size(x))
+    elif (m == 1):
+        y = -0.5*x**2+x+ug
+    elif (m == 2):
+        y = -(x**3)/6 +x/2 +ug
+    elif (m == 3 ):
+        y = -(x**4)/12 +x/3 +ug
+    elif (m == 4):
+        y = np.sin(2*np.pi*x)- 2*np.pi*x +ug
+    else:
+        print('valeur de m indéfinie')
+    return y
+    
+
+# Second membre
+
+b = f(Xh, m)
+b[0]=b[0]+ug/(h**2)
+b[N]=f(1,m)/2
+
+# Resolution du systeme lineaire
+
+Uh = np.linalg.solve(A,b)
+
+# Calcul de la solution exacte aux points d'approximation
+
+Uex = solex(Xh,ug,m)
+
+# Calcul de l'erreur en norme infinie
+
+err = np.max(np.abs(Uh-Uex))
+print('l erreur est ', err)
+
+import matplotlib.pyplot as plt
+Xh = np.concatenate((np.array([0]),Xh))
+Uh = np.concatenate((np.array([ug]),Uh))
+plt.plot(Xh,solex(Xh, ug, m), label = 'sol ex')
+
+plt.plot(Xh, Uh, 'ro--', label = 'sol app')
+
+plt.title('Solution exacte et approchée')
+
+plt.xlabel('x')
+plt.ylabel('u(x)')
+plt.legend()
+plt.show()
