@@ -1,0 +1,166 @@
+module Iteration
+  implicit none
+contains
+  subroutine Cree_Second_Membre(n,b)
+    implicit none
+    integer :: n,i
+    real, dimension(1:n) :: b
+    do i = 1,n
+       b(i) =i
+    end do
+    
+  end subroutine Cree_Second_Membre
+
+  subroutine Init_Mat(n,A)
+    implicit none
+    integer :: n,i
+    real, dimension(1:n, 1:n) :: A
+
+    do i=1,n
+       A(i,i)=2
+       if(i/=1) then
+          A(i, i-1) = -1
+       end if
+       if (i/=n) then
+          A(i, i+1) = -1
+       end if
+    end do
+  end subroutine Init_Mat
+
+  function PS(x,y,n)
+    implicit none
+    integer :: n,i
+    real :: ps,p
+    real,dimension(1:n) :: x,y
+
+    p=0.
+
+    do i=1,n
+       p = p + x(i)*y(i)
+    end do
+    ps=p
+  end function PS
+
+  function A_mul_x(A,x,n)
+    implicit none
+    integer :: n,i,j
+    real, dimension(1:n) :: x, A_mul_x, pvm
+    real, dimension(1:n, 1:n) :: A
+
+    pvm=0.
+    A_mul_x=0.
+    
+
+    do i=1,n
+       do j=1, n
+          pvm(i) = pvm(i) + A(i,j)*x(j)
+       end do
+    end do
+    A_mul_x = pvm
+  end function A_mul_x
+
+  recursive subroutine Jacobi(A,b,x,n,Nmax,epsilon, compteur)
+    implicit none
+    integer :: n, Nmax,i,j, compteur
+    real :: epsilon
+    real, dimension(1:n) :: b,x,y
+    real, dimension(1: n, 1:n) :: A
+
+    compteur = compteur + 1
+    do i = 1, n
+       y(i) = b(i)
+       do j=1, i-1
+          y(i) = y(i)-A(i,j)*x(j)
+       end do
+       do j=i+1, n
+          y(i) = y(i) - A(i,j)*x(j)
+       end do
+       y(i) = y(i)/A(i,i)
+    end do
+    x=y
+    if(compteur == 1) then
+       open(unit=15, file='Residu_Jacobi.txt')
+    end if
+    
+    write(15, *) maxval(abs(A_mul_x(A,x,n)-b))
+    
+    
+
+    if (maxval(abs(A_mul_x(A,x,n)-b)) >epsilon .and. compteur<Nmax) then
+       call Jacobi(A,b,x,n,Nmax,epsilon, compteur)
+    end if
+
+    close(15)
+
+  end subroutine Jacobi
+
+  recursive subroutine Gauss_Seidel(A,b,x,n,Nmax,epsilon, compteur)
+    implicit none
+    integer :: n, Nmax,i,j, compteur
+    real :: epsilon
+    real, dimension(1:n) :: b,x
+    real, dimension(1: n, 1:n) :: A
+
+    compteur = compteur+1
+
+    do i = 1, n
+       x(i) = b(i)
+       do j=1, i-1
+          x(i) = x(i)-A(i,j)*x(j)
+       end do
+       do j=i+1, n
+          x(i) = x(i) - A(i,j)*x(j)
+       end do
+       x(i) = x(i)/A(i,i)
+    end do
+
+    if(compteur == 1)then
+       open(unit=17, file='Residu_Gauss_Seidel.txt')
+    end if
+    
+    write(17, *) maxval(abs(A_mul_x(A,x,n)-b))
+    
+
+    if (maxval(abs(A_mul_x(A,x,n)-b)) >epsilon .and. compteur < Nmax) then
+       call Gauss_Seidel(A,b,x,n,Nmax,epsilon, compteur)
+    end if
+
+    close(17)
+  end subroutine Gauss_Seidel
+
+  recursive subroutine Relaxation(A,b,x,n,Nmax,epsilon, compteur,w)
+    implicit none
+    integer :: n, Nmax, i, j, compteur
+    real :: epsilon, w
+    real, dimension(1:n) :: b,x, xtemp
+    real, dimension(1:n, 1:n) :: A
+    if(compteur == 0) then
+       open(unit=16, file='Residu_Relaxation.txt')
+    end if
+    compteur = compteur+1
+
+
+    do i = 1, n
+       xtemp(i) = b(i)
+       do j=1, i-1
+          xtemp(i) = xtemp(i)-A(i,j)*x(j)
+       end do
+       do j=i+1, n
+          xtemp(i) = xtemp(i) - A(i,j)*x(j)
+       end do
+       xtemp(i) = xtemp(i)/A(i,i)
+       x(i)=x(i) + w*(xtemp(i)-x(i))
+    end do
+
+
+    write(16, *) (maxval(abs(A_mul_x(A,x,n)-b)))
+
+    if (maxval(abs(A_mul_x(A,x,n)-b)) >epsilon .and. compteur < Nmax) then
+       call Relaxation(A,b,x,n,Nmax,epsilon, compteur,w)
+    end if
+    close(16)
+
+
+  end subroutine Relaxation
+
+end module Iteration
