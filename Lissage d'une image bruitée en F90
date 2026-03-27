@@ -1,0 +1,509 @@
+program ppm_to_gray
+  use construction_matrices
+  use gradient_conjugue
+  use stockage_mat
+  implicit none
+  integer :: width, height, maxval
+  integer, parameter :: pr = selected_real_kind(15,300)
+  integer :: n
+  integer :: i, j, k
+  integer :: ios
+  character(len=256) :: filename
+  character(len=2) :: magic
+  character(len=256) :: line
+  integer, allocatable :: gray_image(:,:), resized(:,:)
+  integer :: r, g, b
+  integer :: pos_x, pos_y
+  real(pr) :: scale_x, scale_y
+  integer :: unit
+  integer(kind=1), allocatable :: rgb_data(:)
+  integer :: pixel_count
+  integer :: header_end
+
+  real(pr) ::lambda, tol, h, quotient
+  real(pr), dimension(:,:), allocatable :: f1,A,T,I3,TI,I2, u_matrice
+  real(pr), dimension(:), allocatable :: F,U
+
+  ! --- Demande du fichier et de la taille cible ---
+  print *, 'Entrez le nom du fichier PPM (format P6) :'
+  read(*,'(A)') filename
+
+  print *, 'Entrez la taille n de la matrice de sortie (n x n) :'
+  read(*,*) n
+
+  print*,'donnez-moi une valeur de lambda :'
+  read*, lambda
+
+
+  print*, 'donne moi le niveau de tolérence que tu veux pour arrêter la résolution par la methode des gratients conjugués :'
+  read*, tol
+
+
+
+  allocate (f1(1:n, 1:n), F(1:n**2),A(1:n**2, 1:n**2), T(1:n, 1: n), &
+       I3(1:n**2,1:n**2),TI(1:n**2,1:n**2),I2(1:n,1:n), u_matrice(1:n,1:n),U(1:n**2))
+
+
+
+
+  h = 1./n
+  quotient = lambda/(6.*(h**2))
+
+
+
+
+
+
+
+  ! === Lire le header en mode texte ===
+  open(newunit=unit, file=trim(filename), status='old', form='formatted', action='read', iostat=ios)
+  if (ios /= 0) then
+     print *, 'Erreur : impossible d’ouvrir le fichier.'
+     stop
+  end if
+
+  read(unit, '(A)', iostat=ios) line
+  if (trim(line) /= 'P6') then
+     print *, 'Erreur : le fichier n’est pas au format P6.'
+     stop
+  end if
+
+  ! Sauter les commentaires éventuels
+  call skip_comments(unit)
+  read(unit, *, iostat=ios) width, height
+  call skip_comments(unit)
+  read(unit, *, iostat=ios) maxval
+
+  if (ios /= 0) then
+     print *, 'Erreur lors de la lecture de l’en-tête.'
+     stop
+  end if
+
+  ! Sauvegarder la position où commencent les données binaires
+  inquire(unit, pos=header_end)
+  close(unit)
+
+  print *, 'Image originale :', width, 'x', height, ', max=', maxval
+
+  ! === Lire les données binaires RGB ===
+  open(newunit=unit, file=trim(filename), access='stream', form='unformatted', status='old', action='read')
+  call move_to_position(unit, header_end)
+
+  pixel_count = 3 * width * height
+  allocate(rgb_data(pixel_count))
+  read(unit) rgb_data
+  close(unit)
+
+  ! === Conversion en niveaux de gris ===
+  allocate(gray_image(height, width))
+  k = 1
+  do i = 1, height
+     do j = 1, width
+        r = byte_to_int(rgb_data(k))
+        g = byte_to_int(rgb_data(k+1))
+        b = byte_to_int(rgb_data(k+2))
+        gray_image(i, j) = int(0.2989*r + 0.5870*g + 0.1140*b)
+        k = k + 3
+     end do
+  end do
+
+  ! === Redimensionnement en n x n ===
+  allocate(resized(n, n))
+  scale_x = real(width) / real(n)
+  scale_y = real(height) / real(n)
+
+  do i = 1, n
+     do j = 1, n
+        pos_y = int((i - 0.5) * scale_y) + 1
+        pos_x = int((j - 0.5) * scale_x) + 1
+        if (pos_y < 1) pos_y = 1
+        if (pos_y > height) pos_y = height
+        if (pos_x < 1) pos_x = 1
+        if (pos_x > width) pos_x = width
+        resized(i, j) = gray_image(pos_y, pos_x)
+     end do
+  end do
+
+  ! --- Sauvegarder la matrice en fichier texte pour Gnuplot ---
+  open(unit=10, file='image_matrix.dat', status='replace', action='write')
+  do i = n, 1, -1  
+     write(10, *) (resized(i, j), j = 1, n)
+  end do
+  close(10)
+
+  print *, 'Matrice sauvegardée dans "image_matrix.dat"'
+
+  ! --- Libérer la mémoire ---
+  deallocate(rgb_data, gray_image, resized)
+
+
+
+  !----------------------- APPEL DES FONCTIONS POUR LA CONSTRUCTION DE A ------------------
+
+  call construction_F(n,f1,F)
+  call construction_T(n,T)
+  call construction_I(n,I3)
+  call construction_I2(n,I2)
+  call construction_TI(n,TI,T,I2, quotient)
+  call construction_A(TI,I3,A,n)
+
+  !------SUBROUTINEPOUR LA RESOLUTION PAR LA METHODE DES GRADIENTS CONJUGUES-----------------------
+
+  call res_grad_conj(A,F,n,tol,U)
+  !---------------------------------APPEL SUBROUTINE POOUR STOCKER U-------------------
+  call stockage_matrice_U(U,u_matrice,n)
+
+
+
+contains
+
+  !-------------------------------------------------------------
+  ! Convertit un octet signé (-128..127) en entier 0..255
+  !-------------------------------------------------------------
+  pure integer function byte_to_int(b)
+    integer(kind=1), intent(in) :: b
+    if (b < 0) then
+       byte_to_int = int(b, kind=4) + 256
+    else
+       byte_to_int = int(b, kind=4)
+    end if
+  end function byte_to_int
+
+  !-------------------------------------------------------------
+  ! Ignore les lignes de commentaires commençant par '#'
+  !-------------------------------------------------------------
+  subroutine skip_comments(u)
+    integer, intent(in) :: u
+    character(len=256) :: temp
+    integer :: ios
+    do
+       read(u, '(A)', iostat=ios) temp
+       if (ios /= 0) exit
+       if (temp(1:1) /= '#') then
+          backspace(u)
+          exit
+       end if
+    end do
+  end subroutine skip_comments
+
+  !-------------------------------------------------------------
+  ! Avance le curseur du fichier binaire jusqu’à une position donnée
+  !-------------------------------------------------------------
+  subroutine move_to_position(u, pos)
+    integer, intent(in) :: u, pos
+    integer :: i
+    character(len=1) :: c
+    do i = 1, pos
+       read(u) c
+    end do
+  end subroutine move_to_position
+
+
+
+
+
+end program ppm_to_gray
+
+
+
+
+
+------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+
+                                                             UTILISATION DE CES DIFFERENTS MODULES
+
+
+-------------------------------------------------------------------------------------------------------------------------------------------------------
+
+
+module stockage_mat
+  implicit none
+contains
+
+
+  !------------------------------------ STOCKAGE MATRICE ------------------------------------
+
+
+  subroutine stockage_matrice_U(U,u_matrice,n)
+    implicit none
+    integer :: i,j
+    integer, parameter :: pr = selected_real_kind(15,300)
+    integer, intent(in) :: n
+    real(pr), dimension(1 : n**2), intent(in) :: U
+    real(pr), dimension(1 : n , 1 : n):: u_matrice
+
+
+    do i = 1 , n
+       do j = 1 , n
+          u_matrice(i,j) = U(i*n - n + j)
+       end do
+    end do
+
+    open(unit=11, file='image_lissee.dat', status='replace', action='write')
+    do i = 1,n
+       write(11, *) (u_matrice(i, j), j = 1, n)
+
+    end do
+    close(11)
+
+  end subroutine stockage_matrice_U
+
+  
+end module stockage_mat
+
+------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+
+                                                             MODULE 2
+
+
+-------------------------------------------------------------------------------------------------------------------------------------------------------
+
+module construction_matrices
+  implicit none
+
+    !--------------------------------- SUBROUTINES & FONCTIONS --------------------------------
+
+
+contains
+
+
+
+  !-------------------------------- CONSTRUCTION DE F ------------------------------------
+
+
+  subroutine construction_F(n,f1,F)
+    implicit none
+    integer, parameter :: pr = selected_real_kind(15,300)
+    integer :: i,j,k,n
+    real(pr), dimension(1:n,1:n) :: f1
+    real(pr), dimension(1:n*n) :: F
+
+    open(unit=10, file='image_matrix.dat', status='old', action= 'read')
+    do i = n, 1 ,-1
+       read(10,*) (f1(i,j) , j= 1,n)
+       do k = 1,n
+          F(n*i-n+k)= f1(i,k)
+       end do
+    end do
+    close(10)
+  end subroutine construction_F
+
+
+  !----------------------- LES SUBROUTINES POUR LA CONSTRUCTION DE A ----------------------
+
+
+
+  subroutine construction_A(TI,I3,A,n)
+    implicit none
+    integer, parameter :: pr = selected_real_kind(15,300)
+    integer :: n
+    real(pr), dimension(1:n**2,1:n**2) ::TI,I3,A
+
+    A = I3-TI
+  end subroutine construction_A
+
+
+
+  subroutine construction_T(n,T)
+    implicit none
+    integer, parameter :: pr = selected_real_kind(15,300)
+    integer :: i,n
+    real(pr), dimension(1:n,1:n) :: T
+    do i=1,n
+       T(i,i)=20
+       if (i/=1) then
+          T(i,i-1)=-4
+          if(i/=2) then
+             T(i,i-2) = -1
+          end if    
+       end if
+       if(i/=n) then
+          T(i,i+1)=-4
+          if(i/=n-1) then
+             T(i,i+2) = -1
+          end if
+
+          
+       end if
+    end do
+    print*, T
+  end subroutine construction_T
+
+
+
+  subroutine construction_I(n,I3)
+    implicit none
+    integer, parameter :: pr = selected_real_kind(15,300)
+    integer :: n, i
+    real(pr), dimension(1:n**2, 1:n**2) :: I3
+    do i =1, n**2
+       I3(i,i) = 1
+    end do
+  end subroutine construction_I
+
+  subroutine construction_I2(n,I2)
+
+    implicit none
+    integer, parameter :: pr = selected_real_kind(15,300)
+    integer :: n, i
+    real(pr), dimension(1:n, 1:n) :: I2
+    do i =1, n
+       I2(i,i) = 1
+    end do
+
+  end subroutine construction_I2
+
+
+
+  subroutine construction_TI(n,TI,T,I2, quotient)
+    implicit none
+    integer, parameter :: pr = selected_real_kind(15,300)
+    integer :: n,i
+    real(pr) :: quotient
+    real(pr), dimension(1:n**2,1:n**2) :: TI
+    real(pr), dimension(1:n,1:n) :: T,I2
+
+    do i=1,n
+
+       TI((i-1)*n+1:i*n,(i-1)*n+1:i*n)=T(1:n,1:n)
+       if(i/=1) then
+          TI((i-1)*n+1:i*n,(i-2)*n+1:(i-1)*n) = (-5.)*I2(1:n,1:n)
+       end if
+       if(i/=n) then
+          TI((i-1)*n+1:i*n,i*n+1:(i+1)*n) = (-5.)*I2(1:n,1:n)
+       end if
+
+    end do
+    TI = quotient*TI
+  end subroutine construction_TI
+
+
+
+ 
+
+
+
+end module construction_matrices
+
+
+------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+
+                                                             MODULE 3
+
+
+-------------------------------------------------------------------------------------------------------------------------------------------------------
+
+module gradient_conjugue
+  use produit_sca_ou_mat_vect
+  implicit none
+contains
+
+
+  !-------------RESOLUTION DU SYSTEME LINEAIRE PAR LE GRADIENT CONJUGUÉ ----------------------
+
+
+
+  subroutine res_grad_conj(A,F,n,tol,U)
+
+    implicit none
+    integer, parameter :: pr = selected_real_kind(15,300)
+    real(pr), intent(in) :: tol
+    real(pr) :: r2, alpha, r2_new, beta
+    integer, intent(in) :: n
+    integer :: i
+    real(pr), dimension(1:n**2), intent(in) :: F
+    real(pr), dimension(1:n**2), intent(out) :: U
+    real(pr), dimension(1:n**2) :: r,p, AP 
+    real(pr), dimension(1:n**2,1:n**2), intent(in) :: A
+
+
+    U=0.
+    r=F
+    p=r
+    r2 = psv(r,r,n**2)
+    do i = 1,n**2       
+       AP = pvm(p,A,n**2)
+       alpha = r2/psv(p,AP, n**2)
+       U=U+alpha*p
+
+       r=r-alpha*AP
+       r2_new = psv(r,r,n**2)
+       if (sqrt(r2_new)<tol) then
+          print*,i
+          exit
+       end if
+       beta = r2_new/r2
+       p = r + beta*p
+       r2 = r2_new
+
+       
+    end do
+
+  end subroutine res_grad_conj
+
+end module gradient_conjugue
+
+
+------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+
+                                                             MODULE POUR LE GRADIENT CONJUGÉ
+
+
+-------------------------------------------------------------------------------------------------------------------------------------------------------
+
+module produit_sca_ou_mat_vect
+  implicit none
+contains
+
+   !---------------------- PRODUIT SCALAIRE DE DEUX VECTEURS DE TAILLE L--------------------------------
+
+
+  function psv(v1,v2,l)
+    implicit none
+    integer, intent(in) :: l
+    integer, parameter :: pr = selected_real_kind(15,300)
+    integer :: i
+    real(pr) :: ps
+    real(pr) :: psv
+    real(pr), dimension(l), intent(in) :: v1,v2
+
+    ps = 0
+    do i = 1,l
+       ps= ps + v1(i)*v2(i)
+    end do
+    psv = ps
+  end function psv
+
+
+
+
+  !--------------------- PRODUIT ENTRE UNE MATRICE ET UN VECTEUR ----------------------------
+
+
+  function pvm(v,m,l)
+    implicit none
+    integer, parameter :: pr = selected_real_kind(15,300)
+    integer, intent(in) :: l
+    integer :: i,j
+    real(pr), dimension(l), intent(in) :: v
+    real(pr), dimension(l):: pvm
+    real(pr), dimension(l) :: p
+    real(pr),dimension(l,l), intent(in) :: m
+
+
+    p=0.
+    do i=1,l
+       do j = 1,l
+          p(i) = p(i) + m(i,j)*v(j)
+       end do
+    end do
+    pvm=p
+  end function pvm
+
+
+  
+end module produit_sca_ou_mat_vect
