@@ -1,0 +1,80 @@
+import numpy as np
+import matplotlib.pyplot as plt
+from matplotlib import cm
+
+
+N = int(input('entre la valeur de N:'))
+quelH=int(input('tu veux utiliser quel h (h ou h/2) : tape 1 si tu veux h, et 2 si tu veux h/2'))
+h = 1/(N+1)
+if(quelH==2):
+    h=h/2
+    N=2*(N+1)-1
+
+
+#a) subdivision uniforme
+
+X = np.linspace(0,1,N+2)
+
+
+# b) construction matrice a et second membre b
+
+A = np.diag(4*np.ones(N*N),0) + np.diag(-1*np.ones(N*N-N),-N) + np.diag(-1*np.ones(N*N-N),N)
+
+for i in range(N*N):
+    for j in range(N*N):
+        
+        if (i-j==1):
+            if(i%N!=0 or i==0):
+                A[i,j]=-1
+        elif(i-j==-1):
+            if(j%N!=0 or j==0):
+                A[i,j]=-1
+
+
+b = np.zeros(N*N)
+for i in range(N):
+    
+    b[N*(N-1)+i] = np.sin(2*np.pi*(i+1)*h)*np.sinh(2*np.pi)
+
+
+# c)reseolution systeme lineaire
+Uh = np.linalg.solve(A,b)
+
+
+
+# d) rangement des valeurs de Uh
+Zh = np.zeros((N+2, N+2))
+Zh[0,:] = 0
+Zh[:,0] = 0
+Zh[:,-1] = 0
+for i in range(N+2):
+    Zh[-1,i] = np.sin(2*np.pi*X[i])*np.sinh(2*np.pi)
+for i in range(N):
+    for j in range(N):
+        k = i*N+j
+        Zh[i+1,j+1] = Uh[k]
+
+
+# e) calcul de la solution exacte
+Z = np.zeros((N+2,N+2))
+for i in range(N+2):
+    for j in range(N+2):
+        Z[i,j] = np.sin(2*np.pi*j*h)*np.sinh(2*np.pi*i*h)
+
+# f)erreur
+erreur = np.max(np.abs(Z - Zh))
+print("l'erreur est de :",erreur)
+
+
+# 2. tracé
+coordX = np.zeros((N+2,N+2))
+coordY = np.zeros((N+2,N+2))
+
+for i in range(N+2):
+    for j in range(N+2):
+        coordX[i,j] = X[j]   
+        coordY[i,j] = X[i]   
+        
+fig, ax = plt.subplots(subplot_kw={"projection": "3d"})
+surf = ax.plot_surface(coordX, coordY, Z, cmap=cm.jet,linewidth=0, antialiased=False)
+plt.show()
